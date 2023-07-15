@@ -9,77 +9,31 @@
 */
 #include <Arduino.h>
 #include <NimBLEDevice.h>
-
+#include "config.h"
 void scanEndedCB(NimBLEScanResults results);
 
 static NimBLEAdvertisedDevice* advDevice;
 
+NimBLEAddress SticksAddress(BLE_ADDRESS); // 蓝牙手柄地址
+NimBLEUUID ServiceUUID(SERVICE_UUID); // 蓝牙手柄有数据输出的服务UUID
+
 static bool doConnect = false;
 static uint32_t scanTime = 0; /** 0 = scan forever */
-
+bool scanning = false, connected = false;
 
 /**  None of these are required as they will be handled by the library with defaults. **
  **                       Remove as you see fit for your needs                        */
 class ClientCallbacks : public NimBLEClientCallbacks {
     void onConnect(NimBLEClient* pClient) {
         Serial.println("Connected");
-        /** After connection we should change the parameters if we don't need fast response times.
-         *  These settings are 150ms interval, 0 latency, 450ms timout.
-         *  Timeout should be a multiple of the interval, minimum is 100ms.
-         *  I find a multiple of 3-5 * the interval works best for quick response/reconnect.
-         *  Min interval: 120 * 1.25ms = 150, Max interval: 120 * 1.25ms = 150, 0 latency, 60 * 10ms = 600ms timeout
-         */
-        pClient->updateConnParams(120,120,0,60);
+        connected = true;
     };
 
     void onDisconnect(NimBLEClient* pClient) {
         Serial.print(pClient->getPeerAddress().toString().c_str());
-        Serial.println(" Disconnected - Starting scan");
-        NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
+        connected = false;
     };
 
-    /** Called when the peripheral requests a change to the connection parameters.
-     *  Return true to accept and apply them or false to reject and keep
-     *  the currently used parameters. Default will return true.
-     */
-    bool onConnParamsUpdateRequest(NimBLEClient* pClient, const ble_gap_upd_params* params) {
-        if(params->itvl_min < 24) { /** 1.25ms units */
-            return false;
-        } else if(params->itvl_max > 40) { /** 1.25ms units */
-            return false;
-        } else if(params->latency > 2) { /** Number of intervals allowed to skip */
-            return false;
-        } else if(params->supervision_timeout > 100) { /** 10ms units */
-            return false;
-        }
-
-        return true;
-    };
-
-    /********************* Security handled here **********************
-    ****** Note: these are the same return values as defaults ********/
-    uint32_t onPassKeyRequest(){
-        Serial.println("Client Passkey Request");
-        /** return the passkey to send to the server */
-        return 123456;
-    };
-
-    bool onConfirmPIN(uint32_t pass_key){
-        Serial.print("The passkey YES/NO number: ");
-        Serial.println(pass_key);
-    /** Return false if passkeys don't match. */
-        return true;
-    };
-
-    /** Pairing process complete, we can check the results in ble_gap_conn_desc */
-    void onAuthenticationComplete(ble_gap_conn_desc* desc){
-        if(!desc->sec_state.encrypted) {
-            Serial.println("Encrypt connection failed - disconnecting");
-            /** Find the client with the connection handle provided in desc */
-            NimBLEDevice::getClientByID(desc->conn_handle)->disconnect();
-            return;
-        }
-    };
 };
 
 
@@ -89,8 +43,7 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
     void onResult(NimBLEAdvertisedDevice* advertisedDevice) {
         Serial.print("Advertised Device found: ");
         Serial.println(advertisedDevice->toString().c_str());
-        if(advertisedDevice->isAdvertisingService(NimBLEUUID("DEAD")))
-        {
+        if(advertisedDevice->getAddress() == SticksAddress) {
             Serial.println("Found Our Service");
             /** stop scan before connecting */
             NimBLEDevice::getScan()->stop();
@@ -118,15 +71,40 @@ void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData,
 /** Callback to process the results of the last scan or restart it */
 void scanEndedCB(NimBLEScanResults results){
     Serial.println("Scan Ended");
+    scanning = false;
 }
 
 
 /** Create a single global instance of the callback class to be used by all clients */
 static ClientCallbacks clientCB;
+/*
+ * 订阅通知函数
+*/
+void charaSubscribeNotification(NimBLERemoteCharacteristic *pChara) 
+{
+    if(pChara->canNotify()) {
+        if(pChara->subscribe(true, notifyCB, true)) {
+            Serial.println("set NotifyCb");
+        }
+    }
+}
 
+bool afterConnect(NimBLEClient *pClient)
+{
+  for(auto pService: *pClient->getServices(true)){
+      auto sUuid = pService->getUUID();
+      if(!sUuid.equals(ServiceUUID)) {
+          continue;
+      }
+      for(auto pChara: *pService->getCharacteristics(true)) {
+          charaSubscribeNotification(pChara);
+      }
+  }
+  return true;
+}
 
 /** Handles the provisioning of clients and connects / interfaces with the server */
-bool connectToServer() {
+bool connectToServer(NimBLEAdvertisedDevice *advDevice) {
     NimBLEClient* pClient = nullptr;
 
     /** Check if we have a client we should reuse first **/
@@ -190,138 +168,8 @@ bool connectToServer() {
 
     Serial.print("Connected to: ");
     Serial.println(pClient->getPeerAddress().toString().c_str());
-    Serial.print("RSSI: ");
-    Serial.println(pClient->getRssi());
 
-    /** Now we can read/write/subscribe the charateristics of the services we are interested in */
-    NimBLERemoteService* pSvc = nullptr;
-    NimBLERemoteCharacteristic* pChr = nullptr;
-    NimBLERemoteDescriptor* pDsc = nullptr;
-
-    pSvc = pClient->getService("DEAD");
-    if(pSvc) {     /** make sure it's not null */
-        pChr = pSvc->getCharacteristic("BEEF");
-
-        if(pChr) {     /** make sure it's not null */
-            if(pChr->canRead()) {
-                Serial.print(pChr->getUUID().toString().c_str());
-                Serial.print(" Value: ");
-                Serial.println(pChr->readValue().c_str());
-            }
-
-            if(pChr->canWrite()) {
-                if(pChr->writeValue("Tasty")) {
-                    Serial.print("Wrote new value to: ");
-                    Serial.println(pChr->getUUID().toString().c_str());
-                }
-                else {
-                    /** Disconnect if write failed */
-                    pClient->disconnect();
-                    return false;
-                }
-
-                if(pChr->canRead()) {
-                    Serial.print("The value of: ");
-                    Serial.print(pChr->getUUID().toString().c_str());
-                    Serial.print(" is now: ");
-                    Serial.println(pChr->readValue().c_str());
-                }
-            }
-
-            /** registerForNotify() has been deprecated and replaced with subscribe() / unsubscribe().
-             *  Subscribe parameter defaults are: notifications=true, notifyCallback=nullptr, response=false.
-             *  Unsubscribe parameter defaults are: response=false.
-             */
-            if(pChr->canNotify()) {
-                //if(!pChr->registerForNotify(notifyCB)) {
-                if(!pChr->subscribe(true, notifyCB)) {
-                    /** Disconnect if subscribe failed */
-                    pClient->disconnect();
-                    return false;
-                }
-            }
-            else if(pChr->canIndicate()) {
-                /** Send false as first argument to subscribe to indications instead of notifications */
-                //if(!pChr->registerForNotify(notifyCB, false)) {
-                if(!pChr->subscribe(false, notifyCB)) {
-                    /** Disconnect if subscribe failed */
-                    pClient->disconnect();
-                    return false;
-                }
-            }
-        }
-
-    } else {
-        Serial.println("DEAD service not found.");
-    }
-
-    pSvc = pClient->getService("BAAD");
-    if(pSvc) {     /** make sure it's not null */
-        pChr = pSvc->getCharacteristic("F00D");
-
-        if(pChr) {     /** make sure it's not null */
-            if(pChr->canRead()) {
-                Serial.print(pChr->getUUID().toString().c_str());
-                Serial.print(" Value: ");
-                Serial.println(pChr->readValue().c_str());
-            }
-
-            pDsc = pChr->getDescriptor(NimBLEUUID("C01D"));
-            if(pDsc) {   /** make sure it's not null */
-                Serial.print("Descriptor: ");
-                Serial.print(pDsc->getUUID().toString().c_str());
-                Serial.print(" Value: ");
-                Serial.println(pDsc->readValue().c_str());
-            }
-
-            if(pChr->canWrite()) {
-                if(pChr->writeValue("No tip!")) {
-                    Serial.print("Wrote new value to: ");
-                    Serial.println(pChr->getUUID().toString().c_str());
-                }
-                else {
-                    /** Disconnect if write failed */
-                    pClient->disconnect();
-                    return false;
-                }
-
-                if(pChr->canRead()) {
-                    Serial.print("The value of: ");
-                    Serial.print(pChr->getUUID().toString().c_str());
-                    Serial.print(" is now: ");
-                    Serial.println(pChr->readValue().c_str());
-                }
-            }
-
-            /** registerForNotify() has been deprecated and replaced with subscribe() / unsubscribe().
-             *  Subscribe parameter defaults are: notifications=true, notifyCallback=nullptr, response=false.
-             *  Unsubscribe parameter defaults are: response=false.
-             */
-            if(pChr->canNotify()) {
-                //if(!pChr->registerForNotify(notifyCB)) {
-                if(!pChr->subscribe(true, notifyCB)) {
-                    /** Disconnect if subscribe failed */
-                    pClient->disconnect();
-                    return false;
-                }
-            }
-            else if(pChr->canIndicate()) {
-                /** Send false as first argument to subscribe to indications instead of notifications */
-                //if(!pChr->registerForNotify(notifyCB, false)) {
-                if(!pChr->subscribe(false, notifyCB)) {
-                    /** Disconnect if subscribe failed */
-                    pClient->disconnect();
-                    return false;
-                }
-            }
-        }
-
-    } else {
-        Serial.println("BAAD service not found.");
-    }
-
-    Serial.println("Done with this device!");
-    return true;
+    return afterConnect(pClient);
 }
 
 void setup (){
@@ -386,11 +234,14 @@ void loop (){
     doConnect = false;
 
     /** Found a device we want to connect to, do it now */
-    if(connectToServer()) {
-        Serial.println("Success! we should now be getting notifications, scanning for more!");
-    } else {
-        Serial.println("Failed to connect, starting scan");
+    if(!connected) {
+        if (advDevice != NULL) {
+            if(connectToServer(advDevice)) {
+                Serial.println("Success! we should now be getting notifications!");
+            }
+            advDevice = nullptr;
+        }
+    } else if (!scanning) {
+        NimBLEDevice::getScan()->start(scanTime,scanEndedCB);
     }
-
-    NimBLEDevice::getScan()->start(scanTime,scanEndedCB);
 }

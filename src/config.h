@@ -1,0 +1,7 @@
+#ifndef __CONFIG_H__
+#define __CONFIG_H__
+
+#define BLE_ADDRESS "04:0A:11:11:90:10"
+#define SERVICE_UUID "91680001-1111-6666-8888-0123456789AB"
+
+#endif 
