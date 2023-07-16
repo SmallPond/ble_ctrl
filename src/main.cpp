@@ -10,12 +10,14 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include "config.h"
+#include "ble_ctrl_parser.h"
 void scanEndedCB(NimBLEScanResults results);
 
 static NimBLEAdvertisedDevice* advDevice;
 
 NimBLEAddress SticksAddress(BLE_ADDRESS); // 蓝牙手柄地址
 NimBLEUUID ServiceUUID(SERVICE_UUID); // 蓝牙手柄有数据输出的服务UUID
+BLEControllerNotificationParser bleParser;
 
 static bool doConnect = false;
 static uint32_t scanTime = 0; /** 0 = scan forever */
@@ -55,17 +57,38 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
     };
 };
 
+std::string HexToStr(const std::string& str)
+{
+    std::string result;
+    for (size_t i = 0; i < str.length(); i += 2)
+    {
+        std::string byte = str.substr(i, 2);
+        char chr = (char)(int)strtol(byte.c_str(), NULL, 16);
+        result.push_back(chr);
+    }
+    return result;
+}
 
 /** Notification / Indication receiving handler callback */
+/*
+ * length = 
+*/
 void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify){
-    std::string str = (isNotify == true) ? "Notification" : "Indication";
-    str += " from ";
-    /** NimBLEAddress and NimBLEUUID have std::string operators */
-    str += std::string(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress());
-    str += ": Service = " + std::string(pRemoteCharacteristic->getRemoteService()->getUUID());
-    str += ", Characteristic = " + std::string(pRemoteCharacteristic->getUUID());
-    str += ", Value = " + std::string((char*)pData, length);
-    Serial.println(str.c_str());
+
+    Serial.printf("length: %d, Value = 0x", length);
+    for(int i = 0; i < length; i++) {
+        Serial.printf("%02x", pData[i]);
+        if(i % 2 == 1) {
+            Serial.printf("_");
+        } 
+    }
+    Serial.println();
+
+    bleParser.update(pData+3, BLE_CONTROLLER_DATA_LEN);
+
+    
+    // bleParser.printStatus();
+    
 }
 
 /** Callback to process the results of the last scan or restart it */
