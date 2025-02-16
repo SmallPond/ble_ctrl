@@ -9,13 +9,13 @@
 */
 #include <Arduino.h>
 #include <NimBLEDevice.h>
-#include "config.h"
+#include "ble_ctrl.h"
 #include "ble_ctrl_parser.h"
 void scanEndedCB(NimBLEScanResults results);
 
 static NimBLEAdvertisedDevice* advDevice;
 
-NimBLEAddress SticksAddress(BLE_ADDRESS); // 蓝牙手柄地址
+NimBLEAddress SticksAddress; // 蓝牙手柄地址
 NimBLEUUID ServiceUUID(SERVICE_UUID); // 蓝牙手柄有数据输出的服务UUID
 BLEControllerNotificationParser bleParser;
 
@@ -41,11 +41,19 @@ class ClientCallbacks : public NimBLEClientCallbacks {
 
 /** Define a class to handle the callbacks when advertisments are received */
 class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
+public:
+    AdvertisedDeviceCallbacks(const char *ble_str) {
+        _addr = new NimBLEAddress(ble_str);
+    }
+
+    ~AdvertisedDeviceCallbacks() {
+        delete _addr;
+    }
 
     void onResult(NimBLEAdvertisedDevice* advertisedDevice) {
         Serial.print("Advertised Device found: ");
         Serial.println(advertisedDevice->toString().c_str());
-        if(advertisedDevice->getAddress() == SticksAddress) {
+        if(advertisedDevice->getAddress() == *_addr) {
             Serial.println("Found Our Service");
             /** stop scan before connecting */
             NimBLEDevice::getScan()->stop();
@@ -55,6 +63,8 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
             doConnect = true;
         }
     };
+private:
+    NimBLEAddress *_addr;
 };
 
 std::string HexToStr(const std::string& str)
@@ -195,9 +205,11 @@ bool connectToServer(NimBLEAdvertisedDevice *advDevice) {
     return afterConnect(pClient);
 }
 
-void setup (){
-    Serial.begin(115200);
+void BLECtrl::setup(const char* ble_addr)
+{
+    // Serial.begin(115200);
     Serial.println("Starting NimBLE Client");
+    _ble_address = strdup(ble_addr);
     /** Initialize NimBLE, no device name spcified as we are not advertising */
     NimBLEDevice::init("");
 
@@ -231,7 +243,7 @@ void setup (){
     NimBLEScan* pScan = NimBLEDevice::getScan();
 
     /** create a callback that gets called when advertisers are found */
-    pScan->setAdvertisedDeviceCallbacks(new AdvertisedDeviceCallbacks());
+    pScan->setAdvertisedDeviceCallbacks(new AdvertisedDeviceCallbacks(ble_addr));
 
     /** Set scan interval (how often) and window (how long) in milliseconds */
     pScan->setInterval(45);
@@ -248,7 +260,8 @@ void setup (){
 }
 
 
-void loop (){
+void BLECtrl::loop(void)
+{
     /** Loop here until we find a device we want to connect to */
     while(!doConnect){
         delay(1);

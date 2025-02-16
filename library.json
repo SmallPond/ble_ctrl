@@ -1,0 +1,21 @@
+{
+	"name": "ble_ctrl",
+	"version": "0.0.1",
+	"author": "dingmos",
+    "maintainer":"dingmos",
+	"keywords": "ble, controle, remote",
+	"description": "Decode Bluetooth Game Controller Signals to Control My Device.",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/SmallPond/ble_ctrl.git"
+	},
+	"build": {
+		"includeDir": "."
+	},
+	"license": "MIT",
+	"frameworks": "arduino",
+	"platforms": "*",
+	"dependencies": {
+		"h2zero/NimBLE-Arduino": "~1.4.1"
+	}
+}
