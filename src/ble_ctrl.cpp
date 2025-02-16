@@ -262,9 +262,10 @@ void BLECtrl::setup(const char* ble_addr)
 
 void BLECtrl::loop(void)
 {
-    /** Loop here until we find a device we want to connect to */
-    while(!doConnect){
-        delay(1);
+    if (!doConnect){
+        // Must call Delay
+        vTaskDelay(1 / portTICK_PERIOD_MS);
+        return;
     }
 
     doConnect = false;
@@ -273,7 +274,7 @@ void BLECtrl::loop(void)
     if(!connected) {
         if (advDevice != NULL) {
             if(connectToServer(advDevice)) {
-                Serial.println("Success! we should now be getting notifications!");
+                log_i("Success! we should now be getting notifications!");
             }
             advDevice = nullptr;
         }
