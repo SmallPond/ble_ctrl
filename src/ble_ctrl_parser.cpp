@@ -53,7 +53,7 @@ uint8_t BLEControllerNotificationParser::update(uint8_t *data, size_t length)
     // btnLS = btnBits & 0b00100000;
     // btnRS = btnBits & 0b01000000;
     
-    printStatus();
+    // printStatus();
     return 0;
 }
 
