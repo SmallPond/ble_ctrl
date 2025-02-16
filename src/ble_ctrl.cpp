@@ -15,7 +15,6 @@ void scanEndedCB(NimBLEScanResults results);
 
 static NimBLEAdvertisedDevice* advDevice;
 
-NimBLEAddress SticksAddress; // 蓝牙手柄地址
 NimBLEUUID ServiceUUID(SERVICE_UUID); // 蓝牙手柄有数据输出的服务UUID
 BLEControllerNotificationParser bleParser;
 
@@ -85,18 +84,16 @@ std::string HexToStr(const std::string& str)
 */
 void notifyCB(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify){
 
-    Serial.printf("length: %d, Value = 0x", length);
+    // Serial.printf("length: %d, Value = 0x", length);
     for(int i = 0; i < length; i++) {
         Serial.printf("%02x", pData[i]);
         if(i % 2 == 1) {
             Serial.printf("_");
         } 
     }
-    Serial.println();
+    // Serial.println();
 
     bleParser.update(pData+3, BLE_CONTROLLER_DATA_LEN);
-
-    
     // bleParser.printStatus();
     
 }
@@ -281,4 +278,14 @@ void BLECtrl::loop(void)
     } else if (!scanning) {
         NimBLEDevice::getScan()->start(scanTime,scanEndedCB);
     }
+}
+
+BLEControllerNotificationParser* BLECtrl::get_status(void)
+{
+    return &bleParser;
+}
+
+void BLECtrl::print_status(void)
+{
+    bleParser.printStatus();
 }
