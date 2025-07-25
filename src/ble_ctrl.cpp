@@ -52,8 +52,9 @@ public:
     void onResult(NimBLEAdvertisedDevice* advertisedDevice) {
         Serial.print("Advertised Device found: ");
         Serial.println(advertisedDevice->toString().c_str());
-        if(advertisedDevice->getAddress() == *_addr) {
-            Serial.println("Found Our Service");
+        if(advertisedDevice->getAddress() == *_addr || 
+            advertisedDevice->getName().find("BM769") != std::string::npos) {
+            log_i("Found Our Service Name %s", advertisedDevice->getName().c_str());
             /** stop scan before connecting */
             NimBLEDevice::getScan()->stop();
             /** Save the device reference in a global for the client to use*/
